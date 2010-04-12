@@ -1,0 +1,277 @@
+#!/usr/bin/perl -w
+# metadata_fs
+# (c) Reuben Thomas  29/11/2007-1/5/2008
+# Loopback fs that exposes metadata as regular files
+# Based on example code from Fuse package
+
+use strict;
+
+use File::ExtAttr ':all';
+use IO::File;
+use POSIX qw(ENOENT ENOSYS);
+use Fcntl qw(SEEK_SET);
+use YAML::Tiny;
+use Fuse ':all';
+use Fuse::Util;
+
+# Debug flag
+$Fuse::Util::debugging = 0;
+
+# Global settings
+my ($mountpoint);
+
+# Prefix of metadata file names
+my $meta_prefix = ".meta.";
+
+# File/directory metadata are presented as a YAML file with the same
+# name as the file or directory in the underlying file system. There
+# is a section for each xattr namespace, containing key-value pairs,
+# and the following top-level keys, each of whose value is a number:
+#
+#   dev      device number of filesystem
+#   ino      inode number
+#   mode     file mode (type and permissions, IN OCTAL)
+#   nlink    number of (hard) links to the file
+#   uid      numeric user ID of file's owner
+#   gid      numeric group ID of file's owner
+#   rdev     the device identifier (special files only)
+#   size     total size of file, in bytes
+#   atime    last access time in seconds since the epoch
+#   mtime    last modify time in seconds since the epoch
+#   ctime    inode change time in seconds since the epoch
+#   blksize  preferred block size for file system I/O
+#   blocks   actual number of blocks allocated
+#
+# The metadata for any metadata file or directory are the same as
+# those of the corresponding file or directory. Writing the metadata
+# of a metadata file or directory has no effect even if it succeeds.
+
+sub read_metadata_to_string {
+	my ($file) = @_;
+	my (@stat) = lstat($file);
+	return "", -$! unless @stat;
+	my $yaml = YAML::Tiny->new;
+	$yaml->[0]->{dev} = $stat[0];
+	$yaml->[0]->{ino} = $stat[1];
+	$yaml->[0]->{mode} = sprintf "%lo", $stat[2];
+	$yaml->[0]->{nlink} = $stat[3];
+	$yaml->[0]->{uid} = $stat[4];
+	$yaml->[0]->{gid} = $stat[5];
+	$yaml->[0]->{rdev} = $stat[6];
+	$yaml->[0]->{size} = $stat[7];
+	$yaml->[0]->{atime} = $stat[8];
+	$yaml->[0]->{mtime} = $stat[9];
+	$yaml->[0]->{ctime} = $stat[10];
+	$yaml->[0]->{blksize} = $stat[11];
+	$yaml->[0]->{blocks} = $stat[12];
+	# FIXME: Read xattrs
+	return $yaml->write_string(), 0;
+}
+
+sub write_metadata_from_string {
+	my ($file, $meta) = @_;
+	my $yaml = YAML::Tiny->read($file);
+	my $err = err(chmod(oct($yaml->[0]->{mode}), $file));
+	if ($Fuse::Util::can_syscall) {
+		# Perl's chown() does not chown symlinks, but their targets
+		$! = 0;
+		my ($ret) = syscall(&SYS_lchown, $file, $yaml->[0]->{uid}, $yaml->[0]->{gid});
+		$err = -$! if $err == 0 and $ret == -1;
+	}
+	my ($ret) = err(utime($yaml->[0]->{atime}, $yaml->[0]->{mtime}, $file));
+	$err = $ret if $err == 0;
+	# FIXME: Write xattrs
+	return $err;
+}
+
+
+sub x_getattr {
+	debug("x_getattr ");
+	my $file = prepend_root(shift);
+	return Fuse::Util::real_getattr($file);
+}
+
+sub x_readlink {
+	debug("x_readlink ");
+	my $link = prepend_root(shift);
+	return Fuse::Util::real_readlink($link);
+}
+
+sub x_getdir {
+	debug("x_getdir ");
+	my $dir = prepend_root(shift);
+	return Fuse::Util::real_getdir($dir);
+}
+
+sub x_mknod {
+	debug("x_mknod ");
+	my ($file, $modes, $dev) = @_;
+	$file = prepend_root($file);
+	return Fuse::Util::real_mknod($file, $modes, $dev);
+}
+
+sub x_unlink {
+	debug("x_unlink ");
+	my $file = prepend_root(shift);
+	return Fuse::Util::real_unlink($file);
+}
+
+sub x_link {
+	debug("x_link ");
+	my $old = prepend_root(shift);
+	my $new = prepend_root(shift);
+	return Fuse::Util::real_link($old, $new);
+}
+
+sub x_symlink {
+	debug("x_symlink ");
+	my $old = prepend_root(shift);
+	my $new = prepend_root(shift);
+	return Fuse::Util::real_symlink($old, $new);
+}
+
+sub x_rename {
+	debug("x_rename ");
+	my $old = prepend_root(shift);
+	my $new = prepend_root(shift);
+	return Fuse::Util::real_rename($old, $new);
+}
+
+sub x_mkdir {
+	debug("x_mkdir ");
+	my ($dir, $perm) = @_;
+	$dir = prepend_root($dir);
+	return Fuse::Util::real_mkdir($dir);
+}
+
+sub x_rmdir {
+	debug("x_rmdir ");
+	my $dir = prepend_root(shift);
+	return Fuse::Util::real_rmdir($dir);
+}
+
+sub x_chown {
+	debug("x_chown ");
+	my $file = prepend_root(shift);
+	my ($uid, $gid) = @_;
+	return Fuse::Util::real_chown($file, $uid, $gid);
+}
+
+sub x_chmod {
+	debug("x_chmod ");
+	my $file = prepend_root(shift);
+	my $mode = shift;
+	return Fuse::Util::real_chmod($file, $mode);
+}
+
+sub x_utime {
+	debug("x_utime ");
+	my $file = prepend_root(shift);
+	my ($atime, $mtime) = @_;
+	return Fuse::Util::real_utime($file, $atime, $mtime);
+}
+
+sub x_open {
+	debug("x_open ");
+	my $file = prepend_root(shift);
+	my $mode = shift;
+	return Fuse::Util::real_open($file, $mode);
+}
+
+sub x_read {
+	debug("x_read ");
+	my ($file, $bufsize, $off) = @_;
+	$file = prepend_root($file);
+	my ($meta, $err) = read_metadata_to_string($file);
+	return $err if $err != 0;
+	return substr($meta, $off, $bufsize);
+}
+
+sub x_write {
+	debug("x_write ");
+	my ($file, $buf, $off) = @_;
+	$file = prepend_root($file);
+	my ($meta, $err) = read_metadata_to_string($file);
+	return $err if $err != 0;
+	$meta = substr($meta, 0, $off) . $buf . substr($meta, $off + length($buf));
+	write_metadata_from_string($file, $meta);
+	return length($buf);
+}
+
+sub x_truncate {
+	debug("x_truncate ");
+	my $file = prepend_root(shift);
+	return Fuse::Util::real_truncate($file);
+}
+
+sub x_statfs {
+	debug("x_statfs ");
+	my $file = prepend_root(shift);
+	return Fuse::Util::real_statfs($file);
+}
+
+sub x_listxattr {
+	debug("x_listxattr ");
+	my $file = prepend_root(shift);
+	return Fuse::Util::real_listxattr($file);
+}
+
+sub x_getxattr {
+	debug("x_getxattr ");
+	my $file = prepend_root(shift);
+	my $xattr = shift;
+	return Fuse::Util::real_getxattr($file, $xattr);
+}
+
+sub x_setxattr {
+	debug("x_setxattr ");
+	my $file = prepend_root(shift);
+	my ($xattr, $val, $flags) = @_; # flags can contain XATTR_CREATE and XATTR_REPLACE
+	return Fuse::Util::real_setxattr($file, $xattr, $val, $flags);
+}
+
+sub x_removexattr {
+	debug("x_removexattr ");
+	my $file = prepend_root(shift);
+	my $xattr = shift;
+	return Fuse::Util::real_removexattr($file, $xattr);
+}
+
+
+# If you run the script directly, it will run fusermount, which will in turn
+# re-run this script.  Hence the funky semantics.
+
+# Parse command-line arguments
+$mountpoint = "";
+if (@ARGV) {
+	$Fuse::Util::real_root = shift(@ARGV);
+	$mountpoint = shift(@ARGV);
+}
+
+# Start up FUSE
+Fuse::main(
+	mountpoint  => $mountpoint,
+	debug       => 0,
+	getattr     => "main::x_getattr",
+	readlink    => "main::x_readlink",
+	getdir      => "main::x_getdir",
+	mknod       => "main::x_mknod",
+	unlink      => "main::x_unlink",
+	link        => "main::x_link",
+	symlink     => "main::x_symlink",
+	rename      => "main::x_rename",
+	mkdir       => "main::x_mkdir",
+	rmdir       => "main::x_rmdir",
+	chown       => "main::x_chown",
+	chmod       => "main::x_chmod",
+	utime       => "main::x_utime",
+	open        => "main::x_open",
+	read        => "main::x_read",
+	write       => "main::x_write",
+	truncate    => "main::x_truncate",
+	statfs      => "main::x_statfs",
+	listxattr   => "main::x_listxattr",
+	getxattr    => "main::x_getxattr",
+	setxattr    => "main::x_setxattr",
+	removexattr => "main::x_removexattr",
+);

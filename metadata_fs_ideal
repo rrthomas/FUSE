@@ -1,0 +1,104 @@
+#!/usr/bin/perl -w
+# metadata_fs
+# (c) Reuben Thomas  29/11/2007-1/5/2008
+# Loopback fs that exposes metadata as regular files
+# Based on example code from Fuse package
+
+use strict;
+
+use File::ExtAttr ':all';
+use IO::File;
+use POSIX qw(ENOENT ENOSYS);
+use Fcntl qw(SEEK_SET);
+use Fuse ':all';
+use Fuse::Util;
+
+# Debug flag
+my $Fuse::Util::debugging = 0;
+
+# Global settings
+my ($mountpoint);
+
+# Prefix of metadata file names
+my $meta_prefix = ".meta.";
+
+# File/directory metadata are presented as a directory with the same
+# basename as the file or directory but prefixed ".meta.".
+#
+# The idea is to mimic an ideal system in which xattrs are replaced by
+# ordinary files and directories, and the other metadata are exposed
+# as special files. (This is an interesting idea, but has semantic
+# flaws: for example, the user can unlink files or directories in
+# directories that they own, but shouldn't be able to do that to
+# system xattrs).
+#
+# Inside this are a subdirectory for each xattr namespace, containing
+# a file for each key, whose contents is the corresponding value, and
+# files of the following names, each containing a number followed by a
+# newline:
+#
+#   dev      device number of filesystem
+#   ino      inode number
+#   mode     file mode (type and permissions, IN OCTAL)
+#   nlink    number of (hard) links to the file
+#   uid      numeric user ID of file's owner
+#   gid      numeric group ID of file's owner
+#   rdev     the device identifier (special files only)
+#   size     total size of file, in bytes
+#   atime    last access time in seconds since the epoch
+#   mtime    last modify time in seconds since the epoch
+#   ctime    inode change time in seconds since the epoch
+#   blksize  preferred block size for file system I/O
+#   blocks   actual number of blocks allocated
+#
+# Writing to these files changes the corresponding metadatum, if
+# possible.
+#
+# The metadata for any metadata file or directory are the same as
+# those of the corresponding file or directory. Writing the metadata
+# of a metadata file or directory has no effect even if it succeeds.
+#
+# Real files or directories that already have a name of this form are
+# ignored (i.e. are not visible).
+
+
+# METHODS GO HERE
+
+
+# If you run the script directly, it will run fusermount, which will in turn
+# re-run this script.  Hence the funky semantics.
+
+# Parse command-line arguments
+$mountpoint = "";
+if (@ARGV) {
+	$Fuse::Util::real_root = shift(@ARGV);
+	$mountpoint = shift(@ARGV);
+}
+
+# Start up FUSE
+Fuse::main(
+	mountpoint  => $mountpoint,
+	debug       => 0,
+	getattr     => "main::x_getattr",
+	readlink    => "main::x_readlink",
+	getdir      => "main::x_getdir",
+	mknod       => "main::x_mknod",
+	mkdir       => "main::x_mkdir",
+	unlink      => "main::x_unlink",
+	rmdir       => "main::x_rmdir",
+	symlink     => "main::x_symlink",
+	rename      => "main::x_rename",
+	link        => "main::x_link",
+	chown       => "main::x_chown",
+	chmod       => "main::x_chmod",
+	getxattr    => "main::x_getxattr",
+	setxattr    => "main::x_setxattr",
+	listxattr   => "main::x_listxattr",
+	removexattr => "main::x_removexattr",
+	truncate    => "main::x_truncate",
+	utime       => "main::x_utime",
+	open        => "main::x_open",
+	read        => "main::x_read",
+	write       => "main::x_write",
+	statfs      => "main::x_statfs",
+);

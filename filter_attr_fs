@@ -1,0 +1,249 @@
+#!/usr/bin/perl
+# filter_attr_fs
+# (c) Reuben Thomas  29/11/2007-27/1/2009
+# Loopback fs that shows only files with a particular xattr
+# Based on example code from Fuse package
+
+use strict;
+use warnings;
+
+use File::ExtAttr ':all';
+use IO::File;
+use POSIX qw(ENOENT ENOSYS EEXIST O_RDWR O_ACCMODE);
+use Fcntl qw(SEEK_SET);
+use Fuse ':all';
+use Fuse::Util;
+
+# Debug flag
+$Fuse::Util::debugging = 0;
+
+# Global settings
+my ($tag, $mountpoint);
+
+
+sub tagged {
+        my ($file) = @_;
+        $file =~ s|/$||;
+        my $ret = getfattr($file, $tag);
+        debug("tagged: $file $tag " . defined($ret));
+        return defined($ret);
+}
+
+sub tag {
+        return setfattr(shift, $tag, "");
+}
+
+sub x_getattr {
+        debug("x_getattr ");
+        my $file = prepend_root(shift);
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_getattr($file);
+}
+
+sub x_readlink {
+        debug("x_readlink ");
+        return Fuse::Util::real_readlink(prepend_root(shift));
+}
+
+sub x_getdir {
+        debug("x_getdir ");
+        my ($dirname) = prepend_root(shift);
+        return -ENOENT() unless tagged($dirname) && opendir(DIRHANDLE, $dirname);
+        my (@files) = readdir(DIRHANDLE);
+        closedir(DIRHANDLE);
+        my @psifiles = grep {tagged("$dirname/$_")} @files;
+        return (@psifiles, 0);
+}
+
+sub x_mknod {
+        my ($file, $modes, $dev) = @_;
+        debug("x_mknod ");
+        $file = prepend_root($file);
+        return -EEXIST() if -e $file && !tagged($file);
+        my $rv = Fuse::Util::real_mknod($file, $modes, $dev);
+        return $rv if $rv != 0;
+        return err(tag($file));
+}
+
+sub x_unlink {
+        debug("x_unlink ");
+        my ($file) = prepend_root(shift);
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_unlink($file);
+}
+
+sub x_link {
+        debug("x_link ");
+        my $old = prepend_root(shift);
+        my $new = prepend_root(shift);
+        return -ENOENT() unless tagged($old);
+        return -EEXIST() unless !-e $new || tagged($new);
+        return Fuse::Util::real_link($old, $new);
+}
+
+sub x_symlink {
+        debug("x_symlink ");
+        my $old = shift;
+        my $new = prepend_root(shift);
+        return -EEXIST() if -e $new && !tagged($new);
+        return Fuse::Util::real_symlink($old, $new);
+}
+
+sub x_rename {
+        debug("x_rename ");
+        my $old = prepend_root(shift);
+        my $new = prepend_root(shift);
+        return -ENOENT() unless tagged($old);
+        return -EEXIST() unless !-e $new || tagged($new);
+        return Fuse::Util::real_rename($old, $new);
+}
+
+sub x_mkdir {
+        debug("x_mkdir ");
+        my ($dir, $perm) = @_;
+        $dir = prepend_root($dir);
+        my $ret = Fuse::Util::real_mkdir($dir, $perm);
+        return $ret if $ret != 0;
+        return err(tag($dir));
+}
+
+sub x_rmdir {
+        debug("x_rmdir ");
+        my ($dir) = prepend_root(shift);
+        return -ENOENT() unless tagged($dir);
+        return Fuse::Util::real_rmdir($dir);
+}
+
+sub x_chown {
+        debug("x_chown ");
+        my ($file) = prepend_root(shift);
+        my ($uid, $gid) = @_;
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_chown($file, $uid, $gid);
+}
+
+sub x_chmod {
+        debug("x_chmod ");
+        my $file = prepend_root(shift);
+        return -ENOENT() unless tagged($file);
+        my $mode = shift;
+        return Fuse::Util::real_chmod($file, $mode);
+}
+
+sub x_utime {
+        debug("x_utime ");
+        my $file = prepend_root(shift);
+        my ($atime, $mtime) = @_;
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_utime($file, $atime, $mtime);
+}
+
+sub x_open {
+        my $file = prepend_root(shift);
+        my $mode = shift;
+        my $accmode = $mode & O_ACCMODE;
+        debug("x_open ");
+        if ($accmode == O_WRONLY || $accmode == O_RDWR) {
+                return -EEXIST() if -e $file && !tagged($file);
+        } else {
+                return -ENOENT() unless tagged($file);
+        }
+        return Fuse::Util::real_open($file, $mode);
+}
+
+sub x_read {
+        debug("x_read ");
+        my ($file, $bufsize, $off) = @_;
+        $file = prepend_root($file);
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_read($file, $bufsize, $off);
+}
+
+sub x_write {
+        debug("x_write ");
+        my ($file, $buf, $off) = @_;
+        $file = prepend_root($file);
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_write($file, $buf, $off);
+}
+
+sub x_truncate {
+        debug("x_truncate ");
+        my $file = prepend_root(shift);
+        return -ENOENT() unless tagged($file);
+        return Fuse::Util::real_truncate($file, shift);
+}
+
+sub x_statfs {
+        debug("x_statfs");
+        my $file = prepend_root(shift);
+        return Fuse::Util::real_statfs($file);
+}
+
+sub x_listxattr {
+        debug("x_listxattr ");
+        my $file = prepend_root(shift);
+        return Fuse::Util::real_listxattr($file);
+}
+
+sub x_getxattr {
+        debug("x_getxattr ");
+        my $file = prepend_root(shift);
+        my $xattr = shift;
+        return Fuse::Util::real_getxattr($file, $xattr);
+}
+
+sub x_setxattr {
+        debug("x_setxattr ");
+        my $file = prepend_root(shift);
+        my $xattr = shift;
+        my ($val, $flags) = @_; # flags can contain XATTR_CREATE and XATTR_REPLACE
+        return Fuse::Util::real_setxattr($file, $xattr, $val, $flags);
+}
+
+sub x_removexattr {
+        debug("x_removexattr ");
+        my $file = prepend_root(shift);
+        my $xattr = shift;
+        return Fuse::Util::real_removexattr($file, $xattr);
+}
+
+
+# If you run the script directly, it will run fusermount, which will in turn
+# re-run this script.  Hence the funky semantics.
+
+# Parse command-line arguments
+$mountpoint = "";
+if (@ARGV) {
+        $tag = shift(@ARGV);
+        $Fuse::Util::real_root = shift(@ARGV);
+        $mountpoint = shift(@ARGV);
+}
+
+# Start up FUSE
+Fuse::main(
+        mountpoint  => $mountpoint,
+        debug       => 0,
+        getattr     => "main::x_getattr",
+        readlink    => "main::x_readlink",
+        getdir      => "main::x_getdir",
+        mknod       => "main::x_mknod",
+        unlink      => "main::x_unlink",
+        link        => "main::x_link",
+        symlink     => "main::x_symlink",
+        rename      => "main::x_rename",
+        mkdir       => "main::x_mkdir",
+        rmdir       => "main::x_rmdir",
+        chown       => "main::x_chown",
+        chmod       => "main::x_chmod",
+        utime       => "main::x_utime",
+        open        => "main::x_open",
+        read        => "main::x_read",
+        write       => "main::x_write",
+        truncate    => "main::x_truncate",
+        statfs      => "main::x_statfs",
+        listxattr   => "main::x_listxattr",
+        getxattr    => "main::x_getxattr",
+        setxattr    => "main::x_setxattr",
+        removexattr => "main::x_removexattr",
+);
