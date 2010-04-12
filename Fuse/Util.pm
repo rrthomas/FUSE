@@ -20,20 +20,15 @@ use warnings;
 
 use Fuse ':xattr';
 
-BEGIN {
-  use Exporter ();
-  our ($VERSION, @ISA, @EXPORT, @EXPORT_OK);
-  $VERSION = 0.01;
-  @ISA = qw(Exporter);
-  @EXPORT = qw(&debug &err &prepend_root);
-}
-our @EXPORT_OK;
+use parent qw(Exporter);
+our $VERSION = 0.02;
+our @EXPORT = qw(debug err prepend_root);
 
 
 # Utility routines
 
 # Debug flag
-my $debugging = 0;
+our $debugging = 0;
 
 sub debug {
         print STDERR (shift) . "\n" if $debugging ne 0;
