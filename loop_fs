@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # loop_fs
-# (c) Reuben Thomas  29/11/2007-1/5/2008
+# (c) Reuben Thomas  2007, 2008, 2010
 # Loopback fs
 # Based on example code from Fuse package
 
