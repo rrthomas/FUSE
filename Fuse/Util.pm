@@ -1,5 +1,5 @@
 # Utility routines for Fuse
-# (c) Reuben Thomas  29/11/2007-27/1/2009
+# (c) Reuben Thomas  2007, 2008, 2009, 2010
 # Based on example code from Fuse package
 
 # N.B. that it's better not to have this file as a module of which
