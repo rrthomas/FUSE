@@ -18,11 +18,12 @@ require 5.10.0;
 use strict;
 use warnings;
 
+use Filesys::Statvfs;
 use Fuse ':xattr';
 
 use parent qw(Exporter);
 our $VERSION = 0.02;
-our @EXPORT = qw(debug err prepend_root);
+our @EXPORT = qw(debug err prepend_root $real_root);
 
 
 # Utility routines
