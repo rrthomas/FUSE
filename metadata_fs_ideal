@@ -1,20 +1,19 @@
 #!/usr/bin/perl -w
 # metadata_fs
-# (c) Reuben Thomas  29/11/2007-1/5/2008
+# (c) Reuben Thomas  2007, 2008, 2010
 # Loopback fs that exposes metadata as regular files
 # Based on example code from Fuse package
 
 use strict;
 
 use File::ExtAttr ':all';
-use IO::File;
 use POSIX qw(ENOENT ENOSYS);
 use Fcntl qw(SEEK_SET);
 use Fuse ':all';
 use Fuse::Util;
 
 # Debug flag
-my $Fuse::Util::debugging = 0;
+$Fuse::Util::debugging = 0;
 
 # Global settings
 my ($mountpoint);

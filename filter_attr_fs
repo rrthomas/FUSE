@@ -8,7 +8,6 @@ use strict;
 use warnings;
 
 use File::ExtAttr ':all';
-use IO::File;
 use POSIX qw(ENOENT ENOSYS EEXIST O_RDWR O_ACCMODE);
 use Fcntl qw(SEEK_SET);
 use Fuse ':all';
