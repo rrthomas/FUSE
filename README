@@ -12,6 +12,6 @@ I’ve written an extension, Fuse::Util, which provides fall-through methods tha
 Download
 ========
 
-fuse-bits release 1:
+fuse-bits release 2:
 
-   * Source code (ready to run): $webfile{fuse-bits-1.tar.gz,tar.gz}
+   * Source code (ready to run): $webfile{fuse-bits-2.tar.gz,tar.gz}
